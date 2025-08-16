@@ -1,48 +1,70 @@
 // api/health.js
-const { applyCors } = require("../lib/cors");
-const { reqId } = require("../lib/util");
-const { getDb } = require("../lib/db");
+const { applyCors } = (() => {
+  try {
+    return require("../lib/cors");
+  } catch (err) {
+    return { applyCors: () => false, _error: "cors.js missing or broken" };
+  }
+})();
+const { reqId } = (() => {
+  try {
+    return require("../lib/util");
+  } catch (err) {
+    return { reqId: () => "no-rid", _error: "util.js missing or broken" };
+  }
+})();
+let getDb;
+try {
+  ({ getDb } = require("../lib/db"));
+} catch (err) {
+  getDb = async () => {
+    throw new Error("lib/db.js missing or broken: " + err.message);
+  };
+}
 
 module.exports = async (req, res) => {
+  const rid = (reqId && reqId()) || "unknown";
+
   try {
-    if (applyCors(req, res, { origin: "*" })) return;
+    if (applyCors && applyCors.applyCors && applyCors.applyCors(req, res, { origin: "*" })) return;
 
-    const rid = reqId();
-
-    // --- 1) ENV CHECK ---
-    const envCheck = {
-      MONGODB_URI: !!process.env.MONGODB_URI,
-      TELEGRAM_API_ID: !!process.env.TELEGRAM_API_ID,
-      TELEGRAM_API_HASH: !!process.env.TELEGRAM_API_HASH,
+    // Collect debug info
+    const debug = {
+      rid,
+      ts: new Date().toISOString(),
+      envVars: {
+        MONGODB_URI: !!process.env.MONGODB_URI,
+        MONGODB_DB: !!process.env.MONGODB_DB,
+        TELEGRAM_API_ID: !!process.env.TELEGRAM_API_ID,
+        TELEGRAM_API_HASH: !!process.env.TELEGRAM_API_HASH,
+      },
+      imports: {
+        corsError: applyCors._error || null,
+        utilError: reqId._error || null,
+      },
+      system: {
+        nodeVersion: process.version,
+        vercelEnv: process.env.VERCEL_ENV || "local",
+      },
     };
 
-    // --- 2) MongoDB CHECK ---
-    let mongoCheck = { ok: false };
+    // Try Mongo
     try {
       const db = await getDb();
       await db.command({ ping: 1 });
-      mongoCheck = { ok: true, dbName: db.databaseName };
+      debug.mongo = { ok: true, dbName: db.databaseName };
     } catch (err) {
-      mongoCheck = { ok: false, error: err.message };
+      debug.mongo = { ok: false, error: err.message, stack: err.stack };
     }
 
-    // --- 3) System Info ---
-    const systemInfo = {
-      nodeVersion: process.version,
-      vercelEnv: process.env.VERCEL_ENV || "local",
-    };
-
-    // Final response
-    res.status(200).json({
-      ok: true,
-      rid,
-      ts: new Date().toISOString(),
-      envCheck,
-      mongoCheck,
-      systemInfo,
-    });
+    res.status(200).json({ ok: true, debug });
   } catch (err) {
-    console.error("Health API error:", err);
-    res.status(500).json({ error: err.message });
+    // Catch absolutely everything
+    res.status(500).json({
+      ok: false,
+      rid,
+      error: err.message,
+      stack: err.stack,
+    });
   }
 };
