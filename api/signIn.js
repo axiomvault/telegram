@@ -1,8 +1,7 @@
-// api/signIn.js
 const { applyCors } = require("../lib/cors");
 const { reqId } = require("../lib/util");
 const { getDb } = require("../lib/db");
-const { getClient } = require("../lib/telegram");
+const { getClient, signInRaw, exportSession } = require("../lib/telegram");
 
 module.exports = async (req, res) => {
   req._rid = reqId();
@@ -27,7 +26,7 @@ module.exports = async (req, res) => {
   };
 
   try {
-    const { phone, phoneCodeHash, code } = req.body;
+    const { phone, phoneCodeHash, code, session } = req.body;
     if (!phone || !phoneCodeHash || !code) {
       return res.status(400).json({ error: "Missing parameters", debug });
     }
@@ -37,17 +36,21 @@ module.exports = async (req, res) => {
     debug.mongo.ok = true;
     debug.mongo.dbName = db.databaseName;
 
-    // 2. Telegram client
-    const client = await getClient(phone, db);
+    // 2. Telegram client (use session string if provided, else "")
+    const client = await getClient(session || "");
     debug.telegram.clientCreated = true;
 
-    // 3. Sign in
-    const result = await client.signIn({ phone, phoneCodeHash, code });
+    // 3. Sign in with OTP
+    const result = await signInRaw(client, phone, phoneCodeHash, code);
     debug.telegram.signIn = true;
+
+    // 4. Export session string
+    const newSession = exportSession(client);
 
     return res.status(200).json({
       ok: true,
       user: result.user,
+      session: newSession, // <-- send session back to frontend / save in DB
       debug,
     });
   } catch (err) {
