@@ -87,7 +87,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       ok: true,
       phoneCodeHash: result.phoneCodeHash,
-      session,
+      session: client.session.save(),
       debug,
     });
   } catch (err) {
