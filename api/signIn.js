@@ -1,62 +1,59 @@
 // api/signIn.js
 const { applyCors } = require("../lib/cors");
-const { getDb, getPhoneCodeHash, saveSession } = require("../lib/db");
-const {
-  getClient,
-  signInRaw,
-  getPasswordInfo,
-  checkPassword,
-  exportSession
-} = require("../lib/telegram");
-const { reqId, log } = require("../lib/util");
+const { reqId } = require("../lib/util");
+const { getDb } = require("../lib/db");
+const { getClient } = require("../lib/telegram");
 
 module.exports = async (req, res) => {
   req._rid = reqId();
+
   if (applyCors(req, res, { origin: "*" })) return;
 
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  let debug = {
+    rid: req._rid,
+    ts: new Date().toISOString(),
+    envVars: {
+      TELEGRAM_API_ID: !!process.env.TELEGRAM_API_ID,
+      TELEGRAM_API_HASH: !!process.env.TELEGRAM_API_HASH,
+      MONGODB_URI: !!process.env.MONGODB_URI,
+      MONGODB_DB: !!process.env.MONGODB_DB,
+    },
+    mongo: {},
+    telegram: {},
+  };
+
   try {
-    const { phone, phoneCodeHash, code, password } = req.body || {};
+    const { phone, phoneCodeHash, code } = req.body;
     if (!phone || !phoneCodeHash || !code) {
-      return res.status(400).json({ error: "phone, phoneCodeHash, code required" });
+      return res.status(400).json({ error: "Missing parameters", debug });
     }
 
-    log(req, "info", "signIn.start", { phone });
-
+    // 1. DB check
     const db = await getDb();
-    // you may optionally verify phoneCodeHash against DB:
-    const state = await getPhoneCodeHash(db, phone);
-    if (!state) log(req, "warn", "signIn.noState", { phone });
+    debug.mongo.ok = true;
+    debug.mongo.dbName = db.databaseName;
 
-    const client = await getClient("");
+    // 2. Telegram client
+    const client = await getClient(phone, db);
+    debug.telegram.clientCreated = true;
 
-    try {
-      await signInRaw(client, phone, phoneCodeHash, code);
-    } catch (err) {
-      if (
-        (err && err.message && err.message.includes("SESSION_PASSWORD_NEEDED")) ||
-        (err && err.errorMessage && err.errorMessage.includes("SESSION_PASSWORD_NEEDED"))
-      ) {
-        if (!password) {
-          return res.status(401).json({ error: "2FA_PASSWORD_REQUIRED", rid: req._rid });
-        }
-        const pwdInfo = await getPasswordInfo(client);
-        await checkPassword(client, pwdInfo, password);
-      } else {
-        throw err;
-      }
-    }
+    // 3. Sign in
+    const result = await client.signIn({ phone, phoneCodeHash, code });
+    debug.telegram.signIn = true;
 
-    const sessionStr = await exportSession(client);
-    await saveSession(db, phone, sessionStr);
-
-    log(req, "info", "signIn.done", { phone });
-    res.status(200).json({ ok: true, rid: req._rid });
+    return res.status(200).json({
+      ok: true,
+      user: result.user,
+      debug,
+    });
   } catch (err) {
-    log(req, "error", "signIn.fail", { err: err.message });
-    res.status(500).json({ error: err.message, rid: req._rid });
+    console.error("Error in /signIn:", err);
+    debug.error = err.message;
+    debug.stack = err.stack;
+    return res.status(500).json({ ok: false, debug });
   }
 };
