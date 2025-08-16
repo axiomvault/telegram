@@ -1,12 +1,12 @@
+const { Api } = require("telegram");
+
 module.exports = async (req, res) => {
   let debug = { ts: new Date().toISOString() };
   try {
     const { applyCors } = require("../lib/cors");
-    const { reqId } = require("../lib/util");
     const { getDb } = require("../lib/db");
     const { getClient } = require("../lib/telegram");
 
-    // CORS
     if (applyCors(req, res, { origin: "*" })) return;
 
     // parse body
@@ -23,18 +23,33 @@ module.exports = async (req, res) => {
     const db = await getDb();
     const sessionsCol = db.collection("sessions");
 
-    // client (reuse session if provided)
+    // client
     const client = await getClient(session || "");
+    await client.connect();
     debug.telegram = { clientCreated: true };
 
-    // sign in
     let result;
     try {
-      result = await client.signIn({ phoneNumber: phone, phoneCodeHash, phoneCode: code });
+      // ✅ OTP Sign-in
+      result = await client.invoke(
+        new Api.auth.SignIn({
+          phoneNumber: phone,
+          phoneCodeHash,
+          phoneCode: code,
+        })
+      );
     } catch (err) {
       if (err.errorMessage === "SESSION_PASSWORD_NEEDED") {
         if (!password) throw new Error("2FA_PASSWORD_REQUIRED");
-        result = await client.checkPassword(password);
+
+        // ✅ 2FA sign-in
+        const { computeCheck } = require("telegram/Password");
+        const algo = await client.invoke(new Api.account.GetPassword());
+        const passwordHash = await computeCheck(algo, password);
+
+        result = await client.invoke(
+          new Api.auth.CheckPassword({ password: passwordHash })
+        );
       } else {
         throw err;
       }
@@ -50,8 +65,8 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({
       ok: true,
-      user: result,
-      session: newSession,   // ✅ return updated session
+      user: result.user || result,
+      session: newSession,
       debug,
     });
   } catch (err) {
