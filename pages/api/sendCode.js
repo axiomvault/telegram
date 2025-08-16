@@ -1,6 +1,6 @@
-// backend-vercel/api/sendCode.js
-import { getDb } from "../lib/db.js";
-import { getClient } from "../lib/telegram.js";
+// pages/api/sendCode.js
+import { getDb } from "../../lib/db";
+import { getClient } from "../../lib/telegram";
 
 export default async function handler(req, res) {
   // ✅ Always set CORS headers
@@ -8,13 +8,20 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
+  // ✅ Handle preflight OPTIONS
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
     const { phone } = req.body;
-    if (!phone) return res.status(400).json({ error: "Phone number is required" });
+    if (!phone) {
+      return res.status(400).json({ error: "Phone number is required" });
+    }
 
     const db = await getDb();
     const client = await getClient(phone, db);

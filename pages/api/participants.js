@@ -1,6 +1,6 @@
-// backend-vercel/api/participants.js
-import { getDb } from "../lib/db.js";
-import { getClient } from "../lib/telegram.js";
+// pages/api/participants.js
+import { getDb } from "../../lib/db";
+import { getClient } from "../../lib/telegram";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -8,7 +8,6 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
   try {
