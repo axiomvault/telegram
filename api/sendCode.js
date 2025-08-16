@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
 
   try {
     const { applyCors } = require("../lib/cors");
-    const { reqId } = require("../lib/util");
+    const { reqId } = require("../lib/utils");
     const { getDb } = require("../lib/db");
     const { getClient } = require("../lib/telegram");
 
