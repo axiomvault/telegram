@@ -10,7 +10,7 @@ module.exports = async (req, res) => {
     const { applyCors } = require("../lib/cors");
     const { reqId } = require("../lib/util");
     const { getDb } = require("../lib/db");
-    const { getClient, sendCodeRaw } = require("../lib/telegram");
+    const { getClient, sendCodeRaw, exportSession } = require("../lib/telegram");
 
     // request ID
     req._rid = reqId();
@@ -65,18 +65,29 @@ module.exports = async (req, res) => {
     const result = await sendCodeRaw(client, phone);
     debug.telegram.codeSent = true;
 
-    // store phoneCodeHash
+    // export current session string (so signIn can re-use it)
+    const session = exportSession(client);
+
+    // save session + codeHash
     debug.stage = "store-codehash";
     const codesCol = db.collection("login_codes");
     await codesCol.updateOne(
       { phone },
-      { $set: { phone, phoneCodeHash: result.phoneCodeHash, createdAt: new Date() } },
+      {
+        $set: {
+          phone,
+          phoneCodeHash: result.phoneCodeHash,
+          session,
+          createdAt: new Date(),
+        },
+      },
       { upsert: true }
     );
 
     return res.status(200).json({
       ok: true,
       phoneCodeHash: result.phoneCodeHash,
+      session,
       debug,
     });
   } catch (err) {

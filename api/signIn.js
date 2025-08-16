@@ -1,3 +1,4 @@
+// api/signIn.js
 const { applyCors } = require("../lib/cors");
 const { reqId } = require("../lib/util");
 const { getDb } = require("../lib/db");
@@ -26,9 +27,19 @@ module.exports = async (req, res) => {
   };
 
   try {
-    const { phone, phoneCodeHash, code, session } = req.body;
-    if (!phone || !phoneCodeHash || !code) {
-      return res.status(400).json({ error: "Missing parameters", debug });
+    // --- Parse body manually ---
+    let rawBody = "";
+    for await (const chunk of req) rawBody += chunk;
+    let body;
+    try {
+      body = rawBody ? JSON.parse(rawBody) : {};
+    } catch (e) {
+      return res.status(400).json({ ok: false, error: "Invalid JSON", debug });
+    }
+
+    const { phone, phoneCodeHash, code, session } = body;
+    if (!phone || !phoneCodeHash || !code || !session) {
+      return res.status(400).json({ ok: false, error: "Missing parameters", debug });
     }
 
     // 1. DB check
@@ -36,21 +47,29 @@ module.exports = async (req, res) => {
     debug.mongo.ok = true;
     debug.mongo.dbName = db.databaseName;
 
-    // 2. Telegram client (use session string if provided, else "")
-    const client = await getClient(session || "");
+    // 2. Re-use session from /sendCode
+    const client = await getClient(session);
     debug.telegram.clientCreated = true;
 
-    // 3. Sign in with OTP
+    // 3. Sign in with code
     const result = await signInRaw(client, phone, phoneCodeHash, code);
     debug.telegram.signIn = true;
 
-    // 4. Export session string
-    const newSession = exportSession(client);
+    // 4. Export session after login
+    const finalSession = exportSession(client);
+
+    // Save session to DB
+    const sessionsCol = db.collection("sessions");
+    await sessionsCol.updateOne(
+      { phone },
+      { $set: { phone, string: finalSession, updatedAt: new Date() } },
+      { upsert: true }
+    );
 
     return res.status(200).json({
       ok: true,
       user: result.user,
-      session: newSession, // <-- send session back to frontend / save in DB
+      session: finalSession,
       debug,
     });
   } catch (err) {
