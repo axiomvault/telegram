@@ -7,10 +7,11 @@ module.exports = async (req, res) => {
   };
 
   try {
-    const { applyCors } = require("../lib/cors");
-    const { reqId } = require("../lib/util");
-    const { getDb } = require("../lib/db");
-    const { getClient } = require("../lib/telegram");
+  const { applyCors } = require("../lib/cors");
+  const { reqId, log, sleep, parseFloodWait } = require("../lib/utils");
+  const { getDb } = require("../lib/db");
+  const { getClient } = require("../lib/telegram");
+
 
     req._rid = reqId();
     debug.rid = req._rid;
