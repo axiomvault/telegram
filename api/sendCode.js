@@ -7,11 +7,10 @@ module.exports = async (req, res) => {
   };
 
   try {
-  const { applyCors } = require("../lib/cors");
-  const { reqId, log, sleep, parseFloodWait } = require("../lib/utils");
-  const { getDb } = require("../lib/db");
-  const { getClient } = require("../lib/telegram");
-
+    const { applyCors } = require("../lib/cors");
+    const { reqId } = require("../lib/util");
+    const { getDb } = require("../lib/db");
+    const { getClient } = require("../lib/telegram");
 
     req._rid = reqId();
     debug.rid = req._rid;
@@ -23,7 +22,16 @@ module.exports = async (req, res) => {
       return res.status(405).json({ error: "Method not allowed", debug });
     }
 
-    const { phone } = req.body || {};
+    // 🔥 Fix: parse raw body
+    let body = {};
+    try {
+      body = JSON.parse(req.body || "{}");
+    } catch (e) {
+      debug.stage = "json-parse";
+      throw new Error("Invalid JSON body");
+    }
+
+    const { phone } = body;
     if (!phone) {
       debug.stage = "param-check";
       return res.status(400).json({ error: "Phone number is required", debug });
