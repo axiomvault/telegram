@@ -25,8 +25,19 @@ module.exports = async (req, res) => {
       return res.status(405).json({ ok: false, error: "Method not allowed", debug });
     }
 
-    // trust Vercel JSON body
-    const body = req.body || {};
+    // --- Parse body manually ---
+    let rawBody = "";
+    for await (const chunk of req) rawBody += chunk;
+    let body;
+    try {
+      body = rawBody ? JSON.parse(rawBody) : {};
+    } catch (e) {
+      debug.stage = "json-parse";
+      debug.error = "Invalid JSON body";
+      debug.stack = e.stack;
+      return res.status(400).json({ ok: false, debug });
+    }
+
     const { phone } = body;
     if (!phone) {
       debug.stage = "param-check";
