@@ -8,46 +8,53 @@ module.exports = async (req, res) => {
 
   try {
     const { applyCors } = require("../lib/cors");
-    const { reqId } = require("../lib/utils");
+    const { reqId } = require("../lib/util");
     const { getDb } = require("../lib/db");
     const { getClient } = require("../lib/telegram");
 
+    // Assign request ID
     req._rid = reqId();
     debug.rid = req._rid;
 
+    // Handle CORS
     if (applyCors(req, res, { origin: "*" })) return;
 
+    // Method check
     if (req.method !== "POST") {
       debug.stage = "method-check";
-      return res.status(405).json({ error: "Method not allowed", debug });
+      return res.status(405).json({ ok: false, error: "Method not allowed", debug });
     }
 
-    // 🔥 Fix: parse raw body
-    let body = {};
+    // --- Parse JSON body safely ---
+    let body = "";
     try {
-      body = JSON.parse(req.body || "{}");
-    } catch (e) {
+      for await (const chunk of req) body += chunk;
+      req.body = body ? JSON.parse(body) : {};
+    } catch (err) {
       debug.stage = "json-parse";
-      throw new Error("Invalid JSON body");
+      debug.error = "Invalid JSON body";
+      debug.stack = err.stack;
+      return res.status(400).json({ ok: false, debug });
     }
 
-    const { phone } = body;
+    // Validate input
+    const { phone } = req.body || {};
     if (!phone) {
       debug.stage = "param-check";
-      return res.status(400).json({ error: "Phone number is required", debug });
+      return res.status(400).json({ ok: false, error: "Phone number is required", debug });
     }
 
-    // DB
+    // --- DB connection ---
     debug.stage = "db-connecting";
     const db = await getDb();
     debug.mongo = { ok: true, dbName: db.databaseName };
 
-    // Telegram
+    // --- Telegram client ---
     debug.stage = "telegram-client";
     const client = await getClient(phone, db);
     debug.telegram = { clientCreated: true };
 
-    // Send Code
+    // --- Send Code ---
     debug.stage = "sending-code";
     const result = await client.sendCode(phone);
     debug.telegram.codeSent = true;
@@ -57,6 +64,7 @@ module.exports = async (req, res) => {
       phoneCodeHash: result.phoneCodeHash,
       debug,
     });
+
   } catch (err) {
     console.error("Fatal error in /sendCode:", err);
     debug.stage = debug.stage || "unknown";
