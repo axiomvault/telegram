@@ -12,36 +12,22 @@ module.exports = async (req, res) => {
     const { getDb } = require("../lib/db");
     const { getClient, sendCodeRaw } = require("../lib/telegram");
 
-    // assign request ID
+    // request ID
     req._rid = reqId();
     debug.rid = req._rid;
 
-    // handle CORS
+    // CORS
     if (applyCors(req, res, { origin: "*" })) return;
 
-    // allow only POST
+    // method check
     if (req.method !== "POST") {
       debug.stage = "method-check";
       return res.status(405).json({ ok: false, error: "Method not allowed", debug });
     }
 
-    // --- body parsing ---
-    let body = req.body;
-    if (!body || typeof body !== "object") {
-      try {
-        let raw = "";
-        for await (const chunk of req) raw += chunk;
-        body = raw ? JSON.parse(raw) : {};
-      } catch (e) {
-        debug.stage = "json-parse";
-        debug.error = "Invalid JSON body";
-        debug.stack = e.stack;
-        return res.status(400).json({ ok: false, debug });
-      }
-    }
-
-    // validate phone
-    const { phone } = body || {};
+    // trust Vercel JSON body
+    const body = req.body || {};
+    const { phone } = body;
     if (!phone) {
       debug.stage = "param-check";
       return res.status(400).json({ ok: false, error: "Phone number is required", debug });
@@ -52,18 +38,18 @@ module.exports = async (req, res) => {
     const db = await getDb();
     debug.mongo = { ok: true, dbName: db.databaseName };
 
-    // lookup session (if any)
+    // lookup existing session
     debug.stage = "session-lookup";
     const sessionsCol = db.collection("sessions");
     const existing = await sessionsCol.findOne({ phone });
     const sessionString = existing?.string || "";
 
-    // telegram client
+    // Telegram client
     debug.stage = "telegram-client";
     const client = await getClient(sessionString);
     debug.telegram = { clientCreated: true };
 
-    // send code
+    // send login code
     debug.stage = "sending-code";
     const result = await sendCodeRaw(client, phone);
     debug.telegram.codeSent = true;
