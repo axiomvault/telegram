@@ -1,22 +1,34 @@
+// backend-vercel/api/sendCode.js
+import { applyCors } from "../lib/cors.js";
 import { getDb } from "../lib/db.js";
-import { getClient, sendCode } from "../lib/telegram.js";
+import { getClient } from "../lib/telegram.js";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const { phone } = req.body || {};
-  if (!phone) return res.status(400).json({ error: "phone is required" });
+  // ✅ Handle CORS first
+  if (applyCors(req, res)) return;
+
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
   try {
-    const client = await getClient("");
-    const result = await sendCode(client, phone);
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ error: "Phone number is required" });
+    }
+
+    // Connect to DB
     const db = await getDb();
-    await db.collection("auth_states").updateOne(
-      { phone },
-      { $set: { phone, phoneCodeHash: result.phoneCodeHash, ts: new Date() } },
-      { upsert: true }
-    );
-    return res.json({ ok: true, phoneCodeHash: result.phoneCodeHash });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+
+    // Get Telegram client
+    const client = await getClient(phone, db);
+
+    // Send login code
+    const result = await client.sendCode(phone);
+
+    res.status(200).json({ success: true, phoneCodeHash: result.phoneCodeHash });
+  } catch (err) {
+    console.error("Error in /sendCode:", err);
+    res.status(500).json({ error: err.message });
   }
 }
