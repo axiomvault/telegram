@@ -1,47 +1,45 @@
 // api/sendCode.js
-const { applyCors } = require("../lib/cors");
-const { reqId } = require("../lib/util");
-const { getDb } = require("../lib/db");
-const { getClient } = require("../lib/telegram");
-
 module.exports = async (req, res) => {
-  req._rid = reqId();
-
-  if (applyCors(req, res, { origin: "*" })) return;
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
   let debug = {
-    rid: req._rid,
+    rid: "no-rid",
     ts: new Date().toISOString(),
-    envVars: {
-      TELEGRAM_API_ID: !!process.env.TELEGRAM_API_ID,
-      TELEGRAM_API_HASH: !!process.env.TELEGRAM_API_HASH,
-      MONGODB_URI: !!process.env.MONGODB_URI,
-      MONGODB_DB: !!process.env.MONGODB_DB,
-    },
-    mongo: {},
-    telegram: {},
+    stage: "init",
   };
 
   try {
-    const { phone } = req.body;
+    const { applyCors } = require("../lib/cors");
+    const { reqId } = require("../lib/util");
+    const { getDb } = require("../lib/db");
+    const { getClient } = require("../lib/telegram");
+
+    req._rid = reqId();
+    debug.rid = req._rid;
+
+    if (applyCors(req, res, { origin: "*" })) return;
+
+    if (req.method !== "POST") {
+      debug.stage = "method-check";
+      return res.status(405).json({ error: "Method not allowed", debug });
+    }
+
+    const { phone } = req.body || {};
     if (!phone) {
+      debug.stage = "param-check";
       return res.status(400).json({ error: "Phone number is required", debug });
     }
 
-    // 1. Check DB
+    // DB
+    debug.stage = "db-connecting";
     const db = await getDb();
-    debug.mongo.ok = true;
-    debug.mongo.dbName = db.databaseName;
+    debug.mongo = { ok: true, dbName: db.databaseName };
 
-    // 2. Telegram client
+    // Telegram
+    debug.stage = "telegram-client";
     const client = await getClient(phone, db);
-    debug.telegram.clientCreated = true;
+    debug.telegram = { clientCreated: true };
 
-    // 3. Send login code
+    // Send Code
+    debug.stage = "sending-code";
     const result = await client.sendCode(phone);
     debug.telegram.codeSent = true;
 
@@ -51,7 +49,8 @@ module.exports = async (req, res) => {
       debug,
     });
   } catch (err) {
-    console.error("Error in /sendCode:", err);
+    console.error("Fatal error in /sendCode:", err);
+    debug.stage = debug.stage || "unknown";
     debug.error = err.message;
     debug.stack = err.stack;
     return res.status(500).json({ ok: false, debug });
